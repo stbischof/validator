@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.URI;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -55,7 +54,7 @@ class Daemon {
 
         private final Check implemenation;
 
-        HttpServerHandler(Check check) {
+        HttpServerHandler(final Check check) {
             this.implemenation = check;
         }
 
@@ -66,24 +65,24 @@ class Daemon {
          *            soll.
          */
         @Override
-        public void handle(HttpExchange httpExchange) throws IOException {
+        public void handle(final HttpExchange httpExchange) throws IOException {
             try {
                 log.debug("Incoming request");
-                String requestMethod = httpExchange.getRequestMethod();
+                final String requestMethod = httpExchange.getRequestMethod();
                 if (requestMethod.equals("POST")) {
-                    InputStream inputStream = httpExchange.getRequestBody();
-                    Input serverInput = InputFactory.read(inputStream, "Prüfling" + counter.incrementAndGet());
+                    final InputStream inputStream = httpExchange.getRequestBody();
+                    final Input serverInput = InputFactory.read(inputStream, "Prüfling" + counter.incrementAndGet());
 
-                    int contentLength = serverInput.getContent().length;
+                    final int contentLength = serverInput.getContent().length;
                     if (contentLength != 0) {
-                        writeOutputstreamArray(httpExchange, implemenation.check(serverInput));
+                        writeOutputstreamArray(httpExchange, this.implemenation.check(serverInput));
                     } else {
                         writeError(httpExchange, 400, "XML-Inhalt erforderlich!");
                     }
                 } else {
                     writeError(httpExchange, 405, "Es ist nur die POST-Methode erlaubt!");
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 writeError(httpExchange, 500, "Interner Fehler bei der Verarbeitung des Requests: " + e.getMessage());
                 log.error("Es ist ein Fehler aufgetreten. Das Dokument kann nicht geprüft werden", e);
             }
@@ -100,26 +99,24 @@ class Daemon {
 
         private final Scenarios scenarios;
 
-        HealthHandler(Scenarios scenarios) {
+        HealthHandler(final Scenarios scenarios) {
             this.scenarios = scenarios;
         }
 
         @Override
-        public void handle(HttpExchange httpExchange) throws IOException {
-            Health health = new Health(scenarios);
-            Document doc = health.writeHealthXml();
+        public void handle(final HttpExchange httpExchange) throws IOException {
+            final Health health = new Health(this.scenarios);
+            final Document doc = health.writeHealthXml();
             try {
                 writeOutputstreamArray(httpExchange, doc);
-            } catch (TransformerException e) {
+            } catch (final TransformerException e) {
                 writeError(httpExchange, 500, e.getMessage());
                 log.error("Fehler beim Erzeugen der Status-Information", e);
             }
         }
     }
 
-    private final URI scenarioDefinition;
-
-    private final URI repository;
+    private final CheckConfiguration configuration;
 
     private final String hostName;
 
@@ -134,9 +131,9 @@ class Daemon {
      * @param rCode der Code-Status
      * @param response die String antwort, die ich anzeigen möchte
      */
-    private static void writeError(HttpExchange httpExchange, int rCode, String response) throws IOException {
+    private static void writeError(final HttpExchange httpExchange, final int rCode, final String response) throws IOException {
         httpExchange.sendResponseHeaders(rCode, response.length());
-        OutputStream os = httpExchange.getResponseBody();
+        final OutputStream os = httpExchange.getResponseBody();
         os.write(response.getBytes());
         os.close();
     }
@@ -147,9 +144,10 @@ class Daemon {
      * @param httpExchange um den Antwort Body zu erhalten
      * @param doc der Report
      */
-    private static void writeOutputstreamArray(HttpExchange httpExchange, Document doc) throws IOException, TransformerException {
+    private static void writeOutputstreamArray(final HttpExchange httpExchange, final Document doc)
+            throws IOException, TransformerException {
         final byte[] bytes = serialize(doc);
-        OutputStream os = httpExchange.getResponseBody();
+        final OutputStream os = httpExchange.getResponseBody();
         httpExchange.getResponseHeaders().add("Content-Type", "application/xml");
         httpExchange.sendResponseHeaders(200, bytes.length);
         os.write(bytes);
@@ -162,15 +160,15 @@ class Daemon {
      *
      * @param report Vom Typ Dokument, aka Report .
      */
-    private static byte[] serialize(Document report) throws TransformerException {
+    private static byte[] serialize(final Document report) throws TransformerException {
 
-        try ( ByteArrayOutputStream bArrayOS = new ByteArrayOutputStream() ) {
-            DOMSource source = new DOMSource(report);
-            StreamResult streamResult = new StreamResult(bArrayOS);
-            Transformer transformer = ObjectFactory.createTransformer(true);
+        try ( final ByteArrayOutputStream bArrayOS = new ByteArrayOutputStream() ) {
+            final DOMSource source = new DOMSource(report);
+            final StreamResult streamResult = new StreamResult(bArrayOS);
+            final Transformer transformer = ObjectFactory.createTransformer(true);
             transformer.transform(source, streamResult);
             return bArrayOS.toByteArray();
-        } catch (IOException e) {
+        } catch (final IOException e) {
             log.error("Report {}", e.getMessage(), e);
             throw new IllegalStateException(e);
         }
@@ -180,18 +178,16 @@ class Daemon {
      * Methode zum Starten des Servers
      */
     void startServer() {
-        CheckConfiguration config = new CheckConfiguration(scenarioDefinition);
-        config.setScenarioRepository(repository);
         HttpServer server = null;
         try {
-            server = HttpServer.create(new InetSocketAddress(hostName, port), 0);
-            DefaultCheck check = new DefaultCheck(config);
+            server = HttpServer.create(new InetSocketAddress(this.hostName, this.port), 0);
+            final DefaultCheck check = new DefaultCheck(this.configuration);
             server.createContext("/", new HttpServerHandler(check));
             server.createContext("/health", new HealthHandler(check.getRepository().getScenarios()));
-            server.setExecutor(Executors.newFixedThreadPool(threadCount));
+            server.setExecutor(Executors.newFixedThreadPool(this.threadCount));
             server.start();
-            log.info("Server unter Port {} ist erfolgreich gestartet", port);
-        } catch (IOException e) {
+            log.info("Server unter Port {} ist erfolgreich gestartet", this.port);
+        } catch (final IOException e) {
             log.error("Fehler beim HttpServer erstellen!", e.getMessage(), e);
         }
     }

@@ -23,6 +23,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.TransformerException;
@@ -45,41 +47,42 @@ import net.sf.saxon.trans.XPathException;
 public class RelativeUriResolver implements URIResolver, UnparsedTextURIResolver {
 
     /** the base uri */
-    private final URI baseUri;
+    private final ContentRepository repository;
 
     @Override
     public Source resolve(final String href, final String base) throws TransformerException {
-        final URI resolved = URI.create(base).resolve(href);
-        if (isUnderBaseUri(resolved)) {
+        final Path resolved = this.repository.resolve(base, href);
+        if (isUnderBaseUri(resolved.toUri())) {
             try {
-                return new StreamSource(resolved.toURL().openStream());
+
+                return new StreamSource(Files.newInputStream(resolved), this.repository.getSystemId(resolved));
             } catch (final IOException e) {
 
                 throw new IllegalStateException(String.format("Can not resolve required  %s", href), e);
             }
         } else {
             throw new IllegalStateException(
-                    String.format("The resolved transformation artifact %s is not within the configured repository %s", resolved, baseUri));
+                    String.format("The resolved transformation artifact %s is not within the configured repository %s", resolved,
+                                  this.repository));
         }
     }
 
-    private boolean isUnderBaseUri(URI resolved) {
-        String base = baseUri.toASCIIString().replaceAll("file:/+", "");
-        String r = resolved.toASCIIString().replaceAll("file:/+", "");
-        return r.startsWith(base);
+    private static boolean isUnderBaseUri(final URI resolved) {
+        return ContentRepository.isRepositoryContent(resolved);
     }
 
     @Override
-    public Reader resolve(URI absoluteURI, String encoding, Configuration config) throws XPathException {
+    public Reader resolve(final URI absoluteURI, final String encoding, final Configuration config) throws XPathException {
         if (isUnderBaseUri(absoluteURI)) {
             try {
                 return new InputStreamReader(absoluteURI.toURL().openStream(), encoding);
-            } catch (IOException e) {
+            } catch (final IOException e) {
                 throw new IllegalStateException(String.format("Can not resolve required  %s", absoluteURI), e);
             }
         } else {
             throw new IllegalStateException(
-                    String.format("The resolved transformation artifact %s is not within the configured repository %s", absoluteURI, baseUri));
+                    String.format("The resolved transformation artifact %s is not within the configured repository %s", absoluteURI,
+                                  this.repository));
         }
     }
 }

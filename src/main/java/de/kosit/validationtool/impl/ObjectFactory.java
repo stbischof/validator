@@ -34,7 +34,12 @@ import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.*;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Result;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerConfigurationException;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
 import javax.xml.validation.Schema;
 import javax.xml.validation.SchemaFactory;
 import javax.xml.validation.Validator;
@@ -47,9 +52,13 @@ import lombok.extern.slf4j.Slf4j;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.lib.*;
+import net.sf.saxon.lib.CollectionFinder;
+import net.sf.saxon.lib.Feature;
+import net.sf.saxon.lib.FeatureKeys;
+import net.sf.saxon.lib.OutputURIResolver;
+import net.sf.saxon.lib.ResourceCollection;
+import net.sf.saxon.lib.UnparsedTextURIResolver;
 import net.sf.saxon.s9api.Processor;
-import net.sf.saxon.trans.XPathException;
 
 /**
  * Eine Factory für häufig verwendete Objekte mit XML. Zentralisiert die XML Security Konfiguration. Die Konfiguration
@@ -62,6 +71,36 @@ import net.sf.saxon.trans.XPathException;
  */
 @Slf4j
 public class ObjectFactory {
+
+    private static class SecureUriResolver implements CollectionFinder, OutputURIResolver, UnparsedTextURIResolver {
+
+        public static final String MESSAGE = "Configuration error. Resolving ist not allowed";
+
+        @Override
+        public OutputURIResolver newInstance() {
+            return this;
+        }
+
+        @Override
+        public Result resolve(final String href, final String base) {
+            throw new IllegalStateException(MESSAGE);
+        }
+
+        @Override
+        public void close(final Result result) throws TransformerException {
+            throw new IllegalStateException(MESSAGE);
+        }
+
+        @Override
+        public Reader resolve(final URI absoluteURI, final String encoding, final Configuration config) {
+            throw new IllegalStateException(MESSAGE);
+        }
+
+        @Override
+        public ResourceCollection findCollection(final XPathContext context, final String collectionURI) {
+            throw new IllegalStateException(MESSAGE);
+        }
+    }
 
     private static final String ORACLE_XERCES_CLASS = "com.sun.org.apache.xerces.internal.impl.Constants";
 
@@ -76,7 +115,7 @@ public class ObjectFactory {
     static {
         try {
             Class.forName(ORACLE_XERCES_CLASS);
-        } catch (ClassNotFoundException e) {
+        } catch (final ClassNotFoundException e) {
             log.warn("No oracle JDK version of XERCES found. Configured security features may not have any effect.");
             log.warn("Please take care of XML security while checking your xml contents");
         }
@@ -86,8 +125,8 @@ public class ObjectFactory {
         // hide, it's a factory
     }
 
-    private static DocumentBuilderFactory createDocumentBuilderFactory(boolean validating) {
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+    private static DocumentBuilderFactory createDocumentBuilderFactory(final boolean validating) {
+        final DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
         try {
             dbf.setValidating(validating);
             dbf.setNamespaceAware(true);
@@ -105,7 +144,7 @@ public class ObjectFactory {
             dbf.setXIncludeAware(false);
             dbf.setExpandEntityReferences(false);
             return dbf;
-        } catch (ParserConfigurationException e) {
+        } catch (final ParserConfigurationException e) {
             throw new IllegalStateException("Can not create DocumentBuilderFactory due to underlying configuration error", e);
         }
 
@@ -113,11 +152,11 @@ public class ObjectFactory {
 
     /**
      * Transformer für die Ausgabe. Nutzt nicht Saxon!
-     * 
+     *
      * @param prettyPrint pretty-printing der Ausgabe
      * @return einen vorkonfigurierten Transformer
      */
-    public static Transformer createTransformer(boolean prettyPrint) {
+    public static Transformer createTransformer(final boolean prettyPrint) {
         Transformer transformer = null;
         try {
             transformer = TransformerFactory.newInstance().newTransformer();
@@ -129,7 +168,7 @@ public class ObjectFactory {
                 transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
             }
             return transformer;
-        } catch (TransformerConfigurationException e) {
+        } catch (final TransformerConfigurationException e) {
             throw new IllegalStateException("Can not create Transformer due to underlying configuration error", e);
         }
     }
@@ -141,27 +180,27 @@ public class ObjectFactory {
      */
     public static XMLGregorianCalendar createTimestamp() {
         try {
-            GregorianCalendar cal = new GregorianCalendar();
+            final GregorianCalendar cal = new GregorianCalendar();
             cal.setTime(new Date());
             return DatatypeFactory.newInstance().newXMLGregorianCalendar(cal);
 
-        } catch (DatatypeConfigurationException e) {
+        } catch (final DatatypeConfigurationException e) {
             throw new IllegalStateException("Can not create timestamp", e);
         }
     }
 
-    public static DocumentBuilder createDocumentBuilder(boolean validating) {
+    public static DocumentBuilder createDocumentBuilder(final boolean validating) {
         try {
             return createDocumentBuilderFactory(validating).newDocumentBuilder();
-        } catch (ParserConfigurationException e) {
+        } catch (final ParserConfigurationException e) {
             throw new IllegalStateException("Can not create DocumentFactory due to underlying configuration error", e);
         }
     }
 
-    private static String encode(String input) {
+    private static String encode(final String input) {
         try {
             return URLEncoder.encode(input, StandardCharsets.UTF_8.name());
-        } catch (UnsupportedEncodingException e) {
+        } catch (final UnsupportedEncodingException e) {
             throw new IllegalStateException("Error encoding property while initializing saxon", e);
         }
     }
@@ -169,17 +208,17 @@ public class ObjectFactory {
     public static Processor createProcessor() {
         if (processor == null) {
             processor = new Processor(false);
-            //verhindere  global im Prinzip alle resolving strategien
-            SecureUriResolver resolver = new SecureUriResolver();
+            // verhindere global im Prinzip alle resolving strategien
+            final SecureUriResolver resolver = new SecureUriResolver();
             processor.getUnderlyingConfiguration().setCollectionFinder(resolver);
             processor.getUnderlyingConfiguration().setOutputURIResolver(resolver);
-            //hier fehlt eigentlich noch der UriResolver für unparsed text, wird erst ab Saxon 9.8 unterstützt
+            // hier fehlt eigentlich noch der UriResolver für unparsed text, wird erst ab Saxon 9.8 unterstützt
 
-            //grundsätzlich Feature-konfiguration:
-            processor.setConfigurationProperty(FeatureKeys.DTD_VALIDATION, false);
-            processor.setConfigurationProperty(FeatureKeys.ENTITY_RESOLVER_CLASS, "");
-            processor.setConfigurationProperty(FeatureKeys.XINCLUDE, false);
-            processor.setConfigurationProperty(FeatureKeys.ALLOW_EXTERNAL_FUNCTIONS, false);
+            // grundsätzlich Feature-konfiguration:
+            processor.setConfigurationProperty(Feature.DTD_VALIDATION, false);
+            processor.setConfigurationProperty(Feature.ENTITY_RESOLVER_CLASS, "");
+            processor.setConfigurationProperty(Feature.XINCLUDE, false);
+            processor.setConfigurationProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS, false);
 
             // Konfiguration des zu verwendenden Parsers, wenn Saxon selbst einen erzeugen muss, bspw. beim XSL parsen
             processor.setConfigurationProperty(FeatureKeys.XML_PARSER_FEATURE + encode(FEATURE_SECURE_PROCESSING), true);
@@ -195,17 +234,17 @@ public class ObjectFactory {
      * @param schema das Schema mit dem validiert werden soll
      * @return einen vorkonfigurierten Validator
      */
-    public static Validator createValidator(Schema schema) {
+    public static Validator createValidator(final Schema schema) {
         final Validator validator = schema.newValidator();
         try {
             validator.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-        } catch (SAXNotRecognizedException | SAXNotSupportedException e) {
+        } catch (final SAXNotRecognizedException | SAXNotSupportedException e) {
             log.warn("Can not disable external DTD access. Maybe an unsupported JAXP implementation is used.");
             log.debug(e.getMessage(), e);
         }
         try {
             validator.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-        } catch (SAXNotRecognizedException | SAXNotSupportedException e) {
+        } catch (final SAXNotRecognizedException | SAXNotSupportedException e) {
             log.warn("Can not disable external DTD access. Maybe an unsupported JAXP implementation is used.");
             log.debug(e.getMessage(), e);
 
@@ -214,43 +253,13 @@ public class ObjectFactory {
     }
 
     public static SchemaFactory createSchemaFactory() {
-        SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
+        final SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
         try {
             sf.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            sf.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "file");
-        } catch (SAXException e) {
+            sf.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "file,jar");
+        } catch (final SAXException e) {
             log.warn("Can not disable external DTD access, maybe an unsupported JAXP implementation is used", e);
         }
         return sf;
-    }
-
-    private static class SecureUriResolver implements CollectionFinder, OutputURIResolver, UnparsedTextURIResolver {
-
-        public static final String MESSAGE = "Configuration error. Resolving ist not allowed";
-
-        @Override
-        public OutputURIResolver newInstance() {
-            return this;
-        }
-
-        @Override
-        public Result resolve(String href, String base) throws TransformerException {
-            throw new IllegalStateException(MESSAGE);
-        }
-
-        @Override
-        public void close(Result result) throws TransformerException {
-            throw new IllegalStateException(MESSAGE);
-        }
-
-        @Override
-        public Reader resolve(URI absoluteURI, String encoding, Configuration config) throws XPathException {
-            throw new IllegalStateException(MESSAGE);
-        }
-
-        @Override
-        public ResourceCollection findCollection(XPathContext context, String collectionURI) throws XPathException {
-            throw new IllegalStateException(MESSAGE);
-        }
     }
 }

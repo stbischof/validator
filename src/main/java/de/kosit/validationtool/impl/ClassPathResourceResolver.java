@@ -19,6 +19,8 @@
 
 package de.kosit.validationtool.impl;
 
+import static de.kosit.validationtool.impl.FilesystemHelper.isJarResource;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -35,44 +37,14 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * {@link LSResourceResolver} der objekte relativ zu einem Basis-Pfad aus dem Classpath der Anwendung laden kann.
+ * {@link LSResourceResolver} der objekte relativ zu einem Basis-Pfad aus dem Classpath der Anwendung laden kann. Dies
+ * wird hauptsächlich dafür genutzt die Artefakte des Validations-Tools zu laden. Anwendungsspezifische Artefakte
+ * sollten aus dem {@link ContentRepository} geladen werden - nicht direkt aus dem Classpath.
  * 
  * @author Andreas Penski
  */
 @Slf4j
 class ClassPathResourceResolver implements LSResourceResolver {
-
-    private final URI base;
-
-    /**
-     * Instantiiert einen neuen resolver mit angegebenen Basispfad
-     * 
-     * @param basePath der Basispfad
-     */
-    public ClassPathResourceResolver(String basePath) {
-        if (!StringUtils.startsWith(basePath, "/")) {
-            throw new IllegalArgumentException("Base path must start with a slash");
-        }
-        base = URI.create(basePath + (basePath.endsWith("/") == basePath.length() > 1 ? "" : "/"));
-    }
-
-    @Override
-    public LSInput resolveResource(String type, String namespaceURI, String publicId, String systemId, String baseURI) {
-        final URL resource = ClassPathResourceResolver.class.getResource(base.resolve(systemId).toASCIIString());
-        if (resource != null) {
-            try {
-                InputStream in = resource.openStream();
-                final LSInputImpl input = new LSInputImpl(publicId, systemId, baseURI);
-                input.setByteStream(in);
-                return input;
-
-            } catch (IOException e) {
-                log.error("Error loading schema resource from {}", resource, e);
-            }
-        }
-        // not found
-        return null;
-    }
 
     /**
      * Simple {@link LSInput}-Implementierung, die einen Stream liefern kann
@@ -100,11 +72,12 @@ class ClassPathResourceResolver implements LSResourceResolver {
 
         /**
          * Instantiierung einer neue Instanz.
+         *
          * @param publicId die publicId
          * @param systemId die systemId
          * @param baseURI die baseURI
          */
-        public LSInputImpl(String publicId, String systemId, String baseURI) {
+        public LSInputImpl(final String publicId, final String systemId, final String baseURI) {
             this.publicId = publicId;
             this.systemId = systemId;
             this.baseURI = baseURI;
@@ -112,7 +85,49 @@ class ClassPathResourceResolver implements LSResourceResolver {
 
         @Override
         public boolean getCertifiedText() {
-            return certifiedText;
+            return this.certifiedText;
         }
+    }
+
+    private final URI base;
+
+    /**
+     * Instantiiert einen neuen resolver mit angegebenen Basispfad
+     *
+     * @param basePath der Basispfad
+     */
+    public ClassPathResourceResolver(final String basePath) {
+        if (!StringUtils.startsWith(basePath, "/")) {
+            throw new IllegalArgumentException("Base path must start with a slash");
+        }
+        this.base = URI.create(basePath + (basePath.endsWith("/") == basePath.length() > 1 ? "" : "/"));
+    }
+
+    @Override
+    public LSInput resolveResource(final String type, final String namespaceURI, final String publicId, final String systemId,
+            final String baseURI) {
+        final URL resource = ClassPathResourceResolver.class.getResource(resolve(systemId, baseURI));
+        if (resource != null) {
+            try {
+                final InputStream in = resource.openStream();
+                final LSInputImpl input = new LSInputImpl(publicId, systemId, baseURI);
+                input.setByteStream(in);
+                return input;
+
+            } catch (final IOException e) {
+                log.error("Error loading schema resource from {}", resource, e);
+            }
+        }
+        // not found
+        return null;
+    }
+
+    private String resolve(final String systemId, final String baseUri) {
+        String id = systemId;
+        if (isJarResource(baseUri)) {
+            id = URI.create(FilesystemHelper.getResoucePath(baseUri)).resolve(systemId).toString().substring(1);
+        }
+        return this.base.resolve(id).toASCIIString();
+
     }
 }

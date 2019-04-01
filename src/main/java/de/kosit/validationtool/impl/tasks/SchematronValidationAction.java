@@ -19,7 +19,6 @@
 
 package de.kosit.validationtool.impl.tasks;
 
-import java.net.URI;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -28,6 +27,7 @@ import org.w3c.dom.Document;
 import lombok.RequiredArgsConstructor;
 
 import de.kosit.validationtool.impl.CollectingErrorEventHandler;
+import de.kosit.validationtool.impl.ContentRepository;
 import de.kosit.validationtool.impl.ObjectFactory;
 import de.kosit.validationtool.impl.RelativeUriResolver;
 import de.kosit.validationtool.impl.model.BaseScenario;
@@ -48,39 +48,39 @@ import net.sf.saxon.s9api.XsltTransformer;
 @RequiredArgsConstructor
 public class SchematronValidationAction implements CheckAction {
 
-    private final URI repository;
+    private final ContentRepository repository;
 
-    private List<ValidationResultsSchematron> validate(XdmNode document, ScenarioType scenario) {
+    private List<ValidationResultsSchematron> validate(final XdmNode document, final ScenarioType scenario) {
         return scenario.getSchematronValidations().stream().map(v -> validate(document, v)).collect(Collectors.toList());
     }
 
-    private ValidationResultsSchematron validate(XdmNode document, BaseScenario.Transformation validation) {
+    private ValidationResultsSchematron validate(final XdmNode document, final BaseScenario.Transformation validation) {
         try {
             final XsltTransformer transformer = validation.getExecutable().load();
             // resolving nur relative zum Repository
-            final RelativeUriResolver resolver = new RelativeUriResolver(repository);
+            final RelativeUriResolver resolver = new RelativeUriResolver(this.repository);
             transformer.setURIResolver(resolver);
-            CollectingErrorEventHandler e = new CollectingErrorEventHandler();
+            final CollectingErrorEventHandler e = new CollectingErrorEventHandler();
             transformer.setMessageListener(e);
 
-            Document result = ObjectFactory.createDocumentBuilder(false).newDocument();
+            final Document result = ObjectFactory.createDocumentBuilder(false).newDocument();
             transformer.setDestination(new DOMDestination(result));
             transformer.setInitialContextNode(document);
             transformer.transform();
-            ValidationResultsSchematron s = new ValidationResultsSchematron();
+            final ValidationResultsSchematron s = new ValidationResultsSchematron();
             s.setResource(validation.getResourceType());
-            ValidationResultsSchematron.Results r = new ValidationResultsSchematron.Results();
+            final ValidationResultsSchematron.Results r = new ValidationResultsSchematron.Results();
             r.setAny(result.getDocumentElement());
             s.setResults(r);
             return s;
 
-        } catch (SaxonApiException e) {
+        } catch (final SaxonApiException e) {
             throw new IllegalStateException("Can not run schematron validation", e);
         }
     }
 
     @Override
-    public void check(Bag results) {
+    public void check(final Bag results) {
         final CreateReportInput report = results.getReportInput();
         final List<ValidationResultsSchematron> validationResult = validate(results.getParserResult().getObject(),
                 results.getScenarioSelectionResult().getObject());
@@ -88,7 +88,7 @@ public class SchematronValidationAction implements CheckAction {
     }
 
     @Override
-    public boolean isSkipped(Bag results) {
+    public boolean isSkipped(final Bag results) {
         return results.getSchemaValidationResult() == null || results.getSchemaValidationResult().isInvalid();
     }
 }

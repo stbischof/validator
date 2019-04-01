@@ -20,18 +20,30 @@
 package de.kosit.validationtool.impl;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.StringWriter;
-import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.StringJoiner;
 
-import javax.xml.bind.*;
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBElement;
+import javax.xml.bind.JAXBException;
+import javax.xml.bind.JAXBIntrospector;
+import javax.xml.bind.Marshaller;
+import javax.xml.bind.Unmarshaller;
+import javax.xml.bind.ValidationEventHandler;
 import javax.xml.bind.annotation.XmlRegistry;
 import javax.xml.namespace.QName;
 import javax.xml.parsers.DocumentBuilder;
-import javax.xml.stream.*;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+import javax.xml.stream.XMLStreamWriter;
 import javax.xml.transform.stream.StreamSource;
 import javax.xml.validation.Schema;
 
@@ -45,6 +57,30 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class ConversionService {
 
+    /**
+     * Exception while serializing/deserializing with jaxb.
+     */
+    public class ConversionExeption extends RuntimeException {
+
+        /**
+         * Constructor.
+         *
+         * @param message the message.
+         * @param cause the cause
+         */
+        public ConversionExeption(final String message, final Exception cause) {
+            super(message, cause);
+        }
+
+        /**
+         * Constructor.
+         *
+         * @param message the message.
+         */
+        public ConversionExeption(final String message) {
+            super(message);
+        }
+    }
     // context setup
     private JAXBContext jaxbContext;
 
@@ -52,7 +88,7 @@ public class ConversionService {
         return new QName(model.getClass().getSimpleName().toLowerCase());
     }
 
-    private void checkInputEmpty(final URI xml) {
+    private void checkInputEmpty(final Path xml) {
         if (xml == null) {
             throw new ConversionExeption("Can not unmarshal from empty input");
         }
@@ -68,7 +104,7 @@ public class ConversionService {
      * Initialisiert den default context; Alle Packages mit {@link XmlRegistry XmlRegistries}.
      */
     public void initialize() {
-        Collection<Package> p = new ArrayList<>();
+        final Collection<Package> p = new ArrayList<>();
         p.add(de.kosit.validationtool.model.reportInput.ObjectFactory.class.getPackage());
         p.add(de.kosit.validationtool.model.scenarios.ObjectFactory.class.getPackage());
         initialize(p);
@@ -77,6 +113,7 @@ public class ConversionService {
     public void initialize(final Package... context) {
         initialize(Arrays.asList(context));
     }
+
     /**
      * Initialisiert den conversion service mit den angegegebenen Packages.
      *
@@ -84,7 +121,7 @@ public class ConversionService {
      */
     public void initialize(final Collection<Package> context) {
         final String[] packages = context != null ? context.stream().map(Package::getName).toArray(String[]::new) : new String[0];
-        StringJoiner joiner = new StringJoiner(":");
+        final StringJoiner joiner = new StringJoiner(":");
         Arrays.stream(packages).forEach(p -> joiner.add(p));
         initialize(joiner.toString());
     }
@@ -117,15 +154,15 @@ public class ConversionService {
      * @param <T> type information
      * @return the created object
      */
-    public <T> T readXml(final URI xml, final Class<T> type) {
+    public <T> T readXml(final Path xml, final Class<T> type) {
         return readXml(xml, type, null, null);
     }
 
-    public <T> T readXml(final URI xml, final Class<T> type, Schema schema) {
+    public <T> T readXml(final Path xml, final Class<T> type, final Schema schema) {
         return readXml(xml, type, schema, null);
     }
 
-    public <T> T readXml(final URI xml, final Class<T> type, Schema schema, ValidationEventHandler handler) {
+    public <T> T readXml(final Path xml, final Class<T> type, final Schema schema, final ValidationEventHandler handler) {
         checkInputEmpty(xml);
         checkTypeEmpty(type);
         CollectingErrorEventHandler defaultHandler = null;
@@ -134,12 +171,12 @@ public class ConversionService {
             defaultHandler = new CollectingErrorEventHandler();
             handler2Use = defaultHandler;
         }
-        try {
+        try ( final InputStream stream = Files.newInputStream(xml) ) {
             final XMLInputFactory inputFactory = XMLInputFactory.newFactory();
             inputFactory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
             inputFactory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, false);
             inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-            final XMLStreamReader xsr = inputFactory.createXMLStreamReader(new StreamSource(xml.toASCIIString()));
+            final XMLStreamReader xsr = inputFactory.createXMLStreamReader(new StreamSource(stream, xml.toString()));
             final Unmarshaller u = getJaxbContext().createUnmarshaller();
             u.setSchema(schema);
 
@@ -151,7 +188,7 @@ public class ConversionService {
             }
 
             return value;
-        } catch (final JAXBException | XMLStreamException e) {
+        } catch (final JAXBException | XMLStreamException | IOException e) {
             throw new ConversionExeption(String.format("Can not unmarshal to type %s from %s", type.getSimpleName(), xml.toString()), e);
         }
     }
@@ -167,11 +204,11 @@ public class ConversionService {
         return writeXml(model, null, null);
     }
 
-    public <T> String writeXml(final T model, Schema schema, ValidationEventHandler handler) {
+    public <T> String writeXml(final T model, final Schema schema, final ValidationEventHandler handler) {
         if (model == null) {
             throw new ConversionExeption("Can not serialize null");
         }
-        try ( StringWriter w = new StringWriter() ) {
+        try ( final StringWriter w = new StringWriter() ) {
             final JAXBIntrospector introspector = getJaxbContext().createJAXBIntrospector();
             final Marshaller marshaller = getJaxbContext().createMarshaller();
             marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
@@ -189,17 +226,17 @@ public class ConversionService {
             }
             xmlStreamWriter.flush();
             return w.toString();
-        } catch (JAXBException | IOException | XMLStreamException e) {
+        } catch (final JAXBException | IOException | XMLStreamException e) {
             throw new ConversionExeption(String.format("Error serializing Object %s", model.getClass().getName()), e);
         }
     }
 
-    public <T> Document writeDocument(T input) {
+    public <T> Document writeDocument(final T input) {
         if (input == null) {
             throw new ConversionExeption("Can not serialize null");
         }
-        DocumentBuilder builder = ObjectFactory.createDocumentBuilder(false);
-        Document document = builder.newDocument();
+        final DocumentBuilder builder = ObjectFactory.createDocumentBuilder(false);
+        final Document document = builder.newDocument();
 
         // Marshal the Object to a Document
         Marshaller marshaller = null;
@@ -208,33 +245,8 @@ public class ConversionService {
             marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
             marshaller.marshal(input, document);
             return document;
-        } catch (JAXBException e) {
+        } catch (final JAXBException e) {
             throw new ConversionExeption(String.format("Error serializing Object %s to document", input.getClass().getName()), e);
-        }
-    }
-
-    /**
-     * Exception while serializing/deserializing with jaxb.
-     */
-    public class ConversionExeption extends RuntimeException {
-
-        /**
-         * Constructor.
-         *
-         * @param message the message.
-         * @param cause the cause
-         */
-        public ConversionExeption(final String message, final Exception cause) {
-            super(message, cause);
-        }
-
-        /**
-         * Constructor.
-         *
-         * @param message the message.
-         */
-        public ConversionExeption(final String message) {
-            super(message);
         }
     }
 
