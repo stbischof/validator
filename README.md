@@ -218,7 +218,7 @@ Die für die maschinelle Auswertung des Prüfberichts wesentlichsten Angaben sin
 
 ## Anpassung der Fehlergrade für die Bewertung
 Grundsätzlich werden für die Verarbeitungen alle Meldungen, welche aus den einzelnen
-[Prüfschritten](#grundsätzlicher-ablauf-der-prüfung) resultieren, in die Rollen *error*,
+[Prüfschritten](#grundsätzlicher-ablauf-einer-prüfung) resultieren, in die Rollen *error*,
 *warning* und *information* übersetzt. Der Prüfbericht erhält den Konformitätstatus *valid* genau dann, wenn in der
 Konfiguration ein Prüfszenario für den Dokumenttyp des zu testenden Dokuments gefunden wurde und keine Meldung mit
 Status *error* oder *warning* vorliegt. 
